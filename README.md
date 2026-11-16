@@ -1,6 +1,15 @@
 # 纸鹤展陈耐久研究簿 · SURVIVAL NOTES
 
-分开灯带试件的失效事件与右删失，用 Kaplan–Meier 曲线、Greenwood区间和log-rank比较支持维护观察建议。
+分开灯带试件的失效事件与右删失，用 Kaplan–Meier 曲线、Greenwood区间和log-rank比较支持维护观察建议；并为维修后继续展出、会多次熄灭的灯带提供按试件重建工作区间的复发事件分析，用平均累计故障函数（MCF）与bootstrap同时置信带比较两批累计故障负担。
+
+## 两条并行的证据线
+
+本系统同时承载两类互不干扰的研究：
+
+1. **终态耐久研究（旧口径，结果保持不变）**：每件只有一条终态观察，Kaplan–Meier + Greenwood log-log + 双侧 log-rank。
+2. **复发故障研究（新增）**：可修复灯带的故障/修复/永久退出事件流，按**试件**为独立单位比较两批平均累计故障函数（MCF），并给出**同时置信带**。维修停机与永久退出后的时间不在险；断裂或退出后到达事件的试件整件隔离并保留原因。
+
+两类研究各自建表、各自入队、各自的维护建议与获批导出；终态研究的算法版本、输入哈希与历史结果不受影响。
 
 ## 模拟场景
 
@@ -37,6 +46,8 @@ Compose恰好frontend/backend/worker/db/redis五服务，全部健康检查。My
 
 来源名`zh-lightstrip-followup.csv`，固定seed73/74生成两批各180件，共360个独立试件、360条终态随访。常规/改进工艺使用不同Weibull模拟时长，观察截止在900–1450小时，按25小时离散记录；128件右删失，比例35.56%。同一时点既有失效也有删失，用于真实并列风险集演示。每件只有一条终态观察，事件定义为光通量降到试验阈值，删失为截止仍工作。仅为合成数据。
 
+复发事件来源名`zh-lightstrip-repair-events`（同360个试件的可修复事件流，约1600–1700条）。每个试件的故障(failure)/修复(repair)/永久退出(withdrawal)记录**按乱序到达**，以单调`received_seq`记录真实接收次序、`event_time`为自启用累计小时。常规批故障率高于改进批；每批固定2个隔离演示试件，分别覆盖`failure_while_down`、`event_after_withdrawal`、`withdrawal_while_working`、`repair_while_working`四种隔离原因。观察窗右端点默认1450小时。
+
 seed按用户邮箱、批次code、试件code、随访specimen_id和基准研究名查重，只补缺失，不覆盖人工备注。启动`SEED_DEMO=true`自动seed；失败记录日志不阻塞服务。预置基准比较由真实算法计算，并有获批观察说明。
 
 1. 09:00 江栩以analyst打开ZH-A和ZH-B，核对360件、小时单位及事件/删失含义。
@@ -61,13 +72,25 @@ seed按用户邮箱、批次code、试件code、随访specimen_id和基准研究
 
 官方参考：[SciPy ECDF与右删失KM](https://docs.scipy.org/doc/scipy-1.15.1/reference/generated/scipy.stats.ecdf.html)、[Greenwood区间](https://docs.scipy.org/doc/scipy-1.15.1/reference/generated/scipy.stats._result_classes.EmpiricalDistributionFunction.confidence_interval.html)、[log-rank口径](https://docs.scipy.org/doc/scipy-1.15.1/reference/generated/scipy.stats.logrank.html)。计算实现在本项目标准库算法中；SciPy1.15.1另作独立测试oracle，未用测试数值硬编码结果。
 
+## 复发事件（可修复灯带 MCF）算法口径
+
+只记首次故障会漏掉维修后再次熄灭的后续负担；把同一灯带的各次故障拆成独立试件又会人为增大样本量、低估不确定性。本系统因此以**试件**为独立单位处理复发事件。
+
+- **乱序重建与工作区间**：事件按 `(event_time, received_seq)` 稳定排序恢复事件链，逐事件推进 `working → down → working/withdrawn` 状态机。故障时刻本身在险，工作区间在故障时刻闭合；修复把试件带回工作态，新工作区间从修复时刻起算；**维修停机与永久退出后的时间不在险**。观察窗结束仍在工作则补一段到右端点的右删失区间。
+- **整件隔离**：出现断裂或退出后到达的事件时，该试件整件隔离，其在险历程不进入MCF；全部原始记录仍保留在事件链里供核对，并给出触发事件与原因代码。隔离原因含：`repair_while_working`（工作态收到无对应故障的修复）、`failure_while_down`（停机未修复又来故障）、`withdrawal_while_working`（工作态直接永久退出、链未闭合）、`event_after_withdrawal`（永久退出后仍有事件到达），以及未知类型、非正时间、超出观察窗等。隔离后每批有效试件少于2件则研究失败。
+- **平均累计故障函数 MCF（Nelson 口径）**：事件时点增量 `ΔMCF = d(t)/n(t)`，`n(t)` 为该时刻处于工作区间内的试件数（bisect 覆盖计数，故障时刻计入），MCF 为累计阶梯，维修本身不使曲线上升。
+- **不确定性以试件为单位**：逐点区间与同时置信带都基于**试件非参数 bootstrap**（默认1000次、固定seed，整件重抽样）。逐点区间取 bootstrap 分位数，自动容纳故障计数偏态；同时置信带取每条重抽样曲线相对观测曲线偏差的下/上确界分位数，覆盖率面向**整条曲线**而非单个时点。另附 Lawless–Nadeau（1995）计数过程稳健标准误（试件累计故障计数的样本方差/n）作描述量。
+- **两批比较**：在两批故障时点并集网格上计算 `MCF(A)−MCF(B)`，给出逐点 bootstrap 区间、差值尺度上确界**同时置信带**，并标注带是否全程不含零；早期在险信息不足时差异可能要经过一段观察时间才建立，结论不外推到时间原点。
+- 前提为试件间独立、同一试件内复发允许相关（由试件层面重抽样覆盖）、维修/退出过程非信息性。MCF 是描述累计故障负担的关联工具，不是寿命预测，也不自动决定维修周期。
+- 输入SHA256按试件code稳定排序，覆盖两批全部乱序事件、观察窗右端点、置信水平、bootstrap seed与方法版本。结果含两批MCF曲线/逐点区间/同时带、差值带、每个有效试件的事件链与工作区间（在险历程）、隔离试件清单与原因。方法版本 `mcf-bootstrap-supremum-v1`。Monte Carlo 校准（n=40、400次重抽样、150轮）显示单组同时带覆盖约94%、差值同时带覆盖零约93%，符合95%名义水平。
+
 ## 页面与工程
 
-六页为研究总览、试件与随访、比较配置、耐久结果、维护建议、研究留痕。TestCohort/Specimen/FollowupEvent/SurvivalRun/MaintenanceNote五实体贯穿模型、schema、service、route、前端API、Pinia store与页面。User/Audit为横切实体。
+导航为八个入口：研究总览、试件与随访（终态/复发两个视图）、比较配置、耐久结果、复发研究配置、累计故障结果、维护建议、研究留痕。TestCohort/Specimen/FollowupEvent/SurvivalRun/MaintenanceNote 贯穿终态线；RepairEvent/RecurrentRun 贯穿复发线，两条线共用 Cohort/Specimen/User/Audit。User/Audit为横切实体。
 
 | 部分 | 技术 |
 |---|---|
-| 后端 | Python3.11 / FastAPI / SQLAlchemy / 标准库统计 |
+| 后端 | Python3.11 / FastAPI / SQLAlchemy / 标准库统计（MCF bootstrap 仅用标准库 random/bisect） |
 | 前端 | Vue3 / TypeScript / Pinia / Vue Router / Vite6.4.6 |
 | 数据 | MySQL8 / Redis7 AOF |
 | UI | 修复档案米黄纸、古铜和深灰曲线；Noto Serif SC + Noto Sans SC |
@@ -76,11 +99,11 @@ seed按用户邮箱、批次code、试件code、随访specimen_id和基准研究
 backend/src/{models,schemas,services,controllers,routes,middlewares,utils,constants,config}
 backend/src/{main.py,worker.py}
 backend/scripts/seed_demo.py
-backend/migrations/001_initial.sql
+backend/migrations/001_initial.sql 002_recurrent_events.sql
 frontend/src/{api,stores,types,components,hooks,pages,router,utils,constants}
 ```
 
-RunSummary/SurvivalPlot跨首页、结果和建议页复用，CohortSelector在来源/配置共用，RiskTable封装风险口径；另有DataTable/StatusBadge/Notice、useAction/useResearchData。角色枚举`backend/src/constants/roles.py`、运行枚举`status.py`，对应`frontend/src/constants/enums.ts`，路由/worker真实使用。JWT8小时，PBKDF2-SHA256，权限每次查数据库。审计覆盖登录、随访备注、任务、建议和确认；全局错误与登录限流为两个独立中间件。
+终态线复用 RunSummary/SurvivalPlot/RiskTable；复发线使用 RecurrentRunSummary/McfPlot/McfDifferencePlot/EventChainInspector/RepairEventFlow，DataTable/StatusBadge/Notice、useAction/useResearchData 两线共用。worker 单进程非阻塞轮询 `survival:jobs` 与 `recurrent:jobs` 两个 Redis 队列，复发任务不阻塞终态任务；`main()` 加 `__main__` 守卫以便单测导入。角色枚举`backend/src/constants/roles.py`、运行枚举`status.py`，对应`frontend/src/constants/enums.ts`。JWT8小时，PBKDF2-SHA256，权限每次查数据库。审计覆盖登录、随访备注、两类任务、两类建议和确认；全局错误与登录限流为两个独立中间件。复发研究的获批导出为单CSV多区块（MCF曲线/同时带、差值带、在险历程、隔离清单），与终态导出相互独立。
 
 ## 配置与本地开发
 
@@ -92,6 +115,7 @@ RunSummary/SurvivalPlot跨首页、结果和建议页复用，CohortSelector在�
 | DB_PORT | 17713 | MySQL宿主映射 |
 | JWT_SECRET | local-survival-notes-change-this-key | 本地演示密钥，部署前更换 |
 | SEED_DEMO | true | 启动seed |
+| ARTIFACTS_DIR | /artifacts | worker JSON产物与心跳目录（本地开发可重定向） |
 
 Python3.11安装backend/requirements.txt，设置DATABASE_URL/REDIS_URL；`cd backend && uvicorn src.main:app --reload`，另起`python -m src.worker`。前端`npm install && npm run dev`，本地为`/api`设置后端代理。正式演示以Compose为准。
 
@@ -103,7 +127,7 @@ docker compose down -v --remove-orphans
 
 ## 已知边界
 
-合成冻结数据，无仪器/文件上传；仅允许补随访备注，不编辑终态时长/状态。单worker无running自动恢复、事务outbox、多实例锁；中断任务需重提。登录限流仅进程内。未给中位置信区间、RMST、风险比或比例风险检验，不自动推荐更换时间。ORM metadata初建表不等于完整迁移链；字体依赖网络，离线回退。
+合成冻结数据，无仪器/文件上传；仅允许补随访备注，不编辑终态时长/状态，复发事件流同样为只读核对（乱序由seed模拟，前端不提供手工录入）。单worker无running自动恢复、事务outbox、多实例锁；中断任务需重提。登录限流仅进程内。终态线未给中位置信区间、RMST、风险比或比例风险检验；复发线未做协变量调整、竞争风险或含随机效应的参数复发模型，bootstrap为固定1000次非参数重抽样，不自动推荐更换时间。ORM metadata初建表不等于完整迁移链，已有库用`migrations/002_recurrent_events.sql`升级；字体依赖网络，离线回退。
 
 ## License
 

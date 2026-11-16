@@ -3,3 +3,4 @@ DATABASE_URL=os.environ.get("DATABASE_URL","mysql+pymysql://survival:survival@db
 REDIS_URL=os.environ.get("REDIS_URL","redis://redis:6379/0")
 JWT_SECRET=os.environ.get("JWT_SECRET","local-survival-notes-change-this-key")
 SEED_DEMO=os.environ.get("SEED_DEMO","true").lower()=="true"
+ARTIFACTS_DIR=os.environ.get("ARTIFACTS_DIR","/artifacts")

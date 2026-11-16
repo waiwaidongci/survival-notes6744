@@ -1,1 +1,22 @@
-import {createRouter,createWebHistory} from 'vue-router';import Layout from '../components/Layout.vue';import Overview from '../pages/Overview.vue';import Cohorts from '../pages/Cohorts.vue';import Configure from '../pages/Configure.vue';import Results from '../pages/Results.vue';import Notes from '../pages/Notes.vue';import Audit from '../pages/Audit.vue';export const router=createRouter({history:createWebHistory(),routes:[{path:'/',component:Layout,children:[{path:'',component:Overview},{path:'cohorts',component:Cohorts},{path:'configure',component:Configure},{path:'results',component:Results},{path:'notes',component:Notes},{path:'audit',component:Audit},{path:':pathMatch(.*)*',component:Overview}]}]});
+import {createRouter,createWebHistory} from 'vue-router';
+import Layout from '../components/Layout.vue';
+import Overview from '../pages/Overview.vue';
+import Cohorts from '../pages/Cohorts.vue';
+import Configure from '../pages/Configure.vue';
+import Results from '../pages/Results.vue';
+import RecurrentConfigure from '../pages/RecurrentConfigure.vue';
+import RecurrentResults from '../pages/RecurrentResults.vue';
+import Notes from '../pages/Notes.vue';
+import Audit from '../pages/Audit.vue';
+
+export const router=createRouter({history:createWebHistory(),routes:[{path:'/',component:Layout,children:[
+  {path:'',component:Overview},
+  {path:'cohorts',component:Cohorts},
+  {path:'configure',component:Configure},
+  {path:'results',component:Results},
+  {path:'recurrent-configure',component:RecurrentConfigure},
+  {path:'recurrent-results',component:RecurrentResults},
+  {path:'notes',component:Notes},
+  {path:'audit',component:Audit},
+  {path:':pathMatch(.*)*',component:Overview},
+]}]});
